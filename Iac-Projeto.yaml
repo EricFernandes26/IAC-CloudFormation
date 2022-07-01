@@ -1,0 +1,235 @@
+---
+  Resources:
+
+    VPCProjeto:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: 192.168.0.0/16
+        EnableDnsSupport: true
+        EnableDnsHostnames: true
+        Tags:
+          - Key: "Name"
+            Value: "VPC-Projeto"
+
+    PublicSubnetA:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPCProjeto
+        CidrBlock: 192.168.1.0/24
+        AvailabilityZone: "us-east-1a"
+        MapPublicIpOnLaunch: true
+        Tags:
+          - Key: "Name"
+            Value: "TCC-PublicSubnetA"
+
+    PublicSubnetB:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPCProjeto
+        CidrBlock: 192.168.2.0/24
+        AvailabilityZone: "us-east-1b"
+        MapPublicIpOnLaunch: true
+        Tags:
+          - Key: "Name"
+            Value: "TCC-PublicSubnetB"
+
+    PrivateSubnetA:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPCProjeto
+        CidrBlock: 192.168.3.0/24
+        AvailabilityZone: "us-east-1a"
+        MapPublicIpOnLaunch: true
+        Tags:
+          - Key: "Name"
+            Value: "TCC-PrivateSubnetA"
+    
+    PrivateSubnetB:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPCProjeto
+        CidrBlock: 192.168.4.0/24
+        AvailabilityZone: "us-east-1b"
+        MapPublicIpOnLaunch: true
+        Tags:
+          - Key: "Name"
+            Value: "TCC-PrivateSubnetB"
+
+    IGW:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+          - Key: "Name"
+            Value: "Internet"
+    
+    AttachIGW:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref VPCProjeto
+        InternetGatewayId: !Ref IGW
+    
+    TCCPublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPCProjeto
+        Tags:
+          - Key: "Name"
+            Value: "TCC-PublicRouteTable"
+    
+    PublicRoute:
+      Type: AWS::EC2::Route
+      DependsOn: IGW
+      Properties:
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref IGW
+        RouteTableId: !Ref TCCPublicRouteTable
+    
+    RTAssocSubPubA:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        RouteTableId: !Ref TCCPublicRouteTable
+        SubnetId: !Ref PublicSubnetA
+    
+    RTAssocSubPubB:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        RouteTableId: !Ref TCCPublicRouteTable
+        SubnetId: !Ref PublicSubnetB
+
+    ElasticIp:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: VPC
+        Tags:
+          - Key: "Name"
+            Value: "TCC-ElasticIp"
+
+    NATGateway:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId:
+          Fn::GetAtt:
+          - ElasticIp
+          - AllocationId
+        SubnetId: !Ref PublicSubnetA
+        Tags:
+          - Key: "Name"
+            Value: "TCC-NatGateway"
+
+    TCCPrivateRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPCProjeto
+        Tags:
+          - Key: "Name"
+            Value: "TCC-PrivateRouteTable"
+
+    PrivateRouteToNat:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref TCCPrivateRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        NatGatewayId: !Ref NATGateway
+
+    RTAssocSubPrivA:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PrivateSubnetA
+        RouteTableId: !Ref TCCPrivateRouteTable
+
+    RTAssocSubPrivB:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PrivateSubnetB
+        RouteTableId: !Ref TCCPrivateRouteTable
+
+    SGProjeto:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Libera porta 22
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            CidrIp: 0.0.0.0/0
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 0.0.0.0/0
+          - IpProtocol: icmp
+            FromPort: 8
+            ToPort: -1
+            CidrIp: 192.168.0.0/16
+        VpcId: !Ref VPCProjeto
+        Tags:
+          - Key: "Name"
+            Value: "TCC-SegurityGroup"
+
+    ELBProjeto:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Properties:
+        Subnets: 
+          - !Ref PublicSubnetA
+          - !Ref PublicSubnetB
+        SecurityGroups:
+          - !Ref SGProjeto
+        Type: application
+        Tags: 
+          - Key: "Name"
+            Value: "ELBProjeto"
+      
+    ELBListener:
+      Type: AWS::ElasticLoadBalancingV2::Listener
+      Properties:
+        LoadBalancerArn: !Ref ELBProjeto
+        Port: 80
+        Protocol: HTTP
+        DefaultActions:
+          - Type: forward
+            TargetGroupArn: !Ref TargetGroup
+
+    TargetGroup:
+      Type: AWS::ElasticLoadBalancingV2::TargetGroup
+      Properties:
+        VpcId: !Ref VPCProjeto
+        Protocol: HTTP
+        Port: 80
+        TargetType: instance
+        Tags:
+          - Key: "Name"
+            Value: "TCC-TargetGroup"
+
+    AutoScalingConfAMI:
+      Type: AWS::AutoScaling::LaunchConfiguration
+      Properties:
+        ImageId: ami-0efa27956bdec069f
+        SecurityGroups:
+          - !Ref SGProjeto
+        InstanceType: t3.medium
+        BlockDeviceMappings: 
+          - DeviceName: /dev/sda1
+            Ebs: 
+              VolumeSize: '30'
+              VolumeType: gp3
+              DeleteOnTermination: false
+        KeyName: asgkey
+
+    ASG:
+      Type: AWS::AutoScaling::AutoScalingGroup
+      Properties:
+        VPCZoneIdentifier:
+          - !Ref PrivateSubnetA
+        LaunchConfigurationName: !Ref AutoScalingConfAMI
+        MinSize: '2'
+        MaxSize: '4'
+        DesiredCapacity: '2'
+        TargetGroupARNs:
+          - !Ref TargetGroup
+        Tags:
+          - Key: "Name"
+            PropagateAtLaunch: false
+            Value: "Grupo-AS-TCC"
